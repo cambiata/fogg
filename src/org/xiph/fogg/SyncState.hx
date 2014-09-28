@@ -1,6 +1,7 @@
 package org.xiph.fogg;
 
 import org.xiph.system.Bytes;
+import org.xiph.System;
 
 class SyncState {
     /*
