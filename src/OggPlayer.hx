@@ -44,8 +44,8 @@ import org.xiph.system.Bytes;
 import org.xiph.system.VSoundDecoder;
 
 class OggPlayer  {
-    var _aq : ADQueue; // audio data queue
-    var _dec : VSoundDecoder;
+    var audioDataQueue : ADQueue; // audio data queue
+    var decoder : VSoundDecoder;
 
     var _decoding : Bool;
     var _need_data : Bool;
@@ -54,22 +54,23 @@ class OggPlayer  {
     var _data_complete : Bool;
     var _read_pending : Bool;
 
-    var _s : flash.media.Sound;
-    var _sch : flash.media.SoundChannel;
+    var sound : flash.media.Sound;
+    var soundChannel : flash.media.SoundChannel;
 
-    var _c1 : Int;
+    var counterInt : Int;
     
     private var data : ByteArray;
 
     public static inline var SAMPLERATE : Int = 44100;
     public static inline var DATA_CHUNK_SIZE : Int = 16384;
 
-    public function new(data:ByteArray, offset:Float, volume:Float, pan:Float) {
+    public function new(indata:ByteArray, offset:Float, volume:Float, pan:Float) {
+				trace('new');
         //super();
-        data.position = 0;
+        indata.position = 0;
         this.data = new ByteArray();
-        data.readBytes(this.data);
-        data.position = 0;
+        indata.readBytes(this.data);
+        indata.position = 0;
            trace(this.data.length);
         _need_data = false;
         _need_samples = true;
@@ -78,74 +79,45 @@ class OggPlayer  {
         _read_pending = false;
         _decoding = true;
         
-        _c1 = 0;
+        counterInt = 0;
         
-        _aq = new ADQueue(Std.int(1000 * SAMPLERATE / 1000));
-        _dec = new VSoundDecoder();
+        audioDataQueue = new ADQueue(Std.int(1000 * SAMPLERATE / 1000));
+        audioDataQueue.over_min_cb = queueOverMinCallback;
+        audioDataQueue.over_max_cb = queueOverMaxCallback;
+        audioDataQueue.under_max_cb = queueUnderMaxCallback;
+
+        decoder = new VSoundDecoder();
+        decoder.decoded_cb = decodedCallback;
         
-        _aq.over_min_cb = _on_over_min;
-        _aq.over_max_cb = _on_over_max;
-        _aq.under_max_cb = _on_under_max;
-
-        _dec.decoded_cb = _on_decoded;
-        
-        haxe.Timer.delay(_try_write_data, 0);
-
+        haxe.Timer.delay(timerTryWriteData, 0);
 		
+        sound = new Sound();
+        soundChannel = null;
+        sound.addEventListener(SampleDataEvent.SAMPLE_DATA, onSampleData);
 		
-        _s = new Sound();
-        _sch = null;
-        _s.addEventListener(SampleDataEvent.SAMPLE_DATA, _data_cb);
-
-		
-		
-        haxe.Timer.delay(_decode, 0);
-		
-		
-		
-		/*
-		*/
-		
-		
+        haxe.Timer.delay(timerDecode, 0);
     }
     
     public  function stop() : Void {
-        _sch.removeEventListener(Event.SOUND_COMPLETE, channelComplete);
-        _sch.stop();
+				trace('stop');
+        soundChannel.removeEventListener(Event.SOUND_COMPLETE, channelComplete);
+        soundChannel.stop();
     }
 
-    public  function getPosition() : Float {
-        return 0;
-    }
-    
-    public  function getVolume() : Float {
-        return 0;
-    }
-    
-    public  function getPan() : Float {
-        return 0;
-    }
-    
-    public  function setVolume(volume : Float) : Void {
-    }
-    
-    public  function setPan(pan : Float) : Void {
-    }
-    
-    
-    
-    
-    function _try_write_data() : Void {
+    function timerTryWriteData() : Void {
+				trace('timerTryWriteData');
         _read_pending = false;
 
         if (! _need_data)
             return;
 
         var to_read : Int = this.data.length;
+		trace(to_read);
+		
         if (to_read >= DATA_CHUNK_SIZE) {
             to_read = DATA_CHUNK_SIZE;
         } else if (_data_complete) {
-            if (_dec.dmx.eos) {
+            if (decoder.dmx.eos) {
                 _need_data = false;
                 return;
             }
@@ -156,22 +128,26 @@ class OggPlayer  {
             // on_progress should call us again... right?
             return;
         }
-
+		trace(to_read);
+		
         _need_data = false;
 
-        _dec.dmx.read(this.data, to_read);
+        decoder.dmx.read(this.data, to_read);
 
+		decoder.dmx.
+		
         //if (_data_complete)
         //    _dec.dmx.read(_ul, 0);
 
         if (_need_samples)
-            haxe.Timer.delay(_decode, 0);
+            haxe.Timer.delay(timerDecode, 0);
     }
 
-    function _decode() : Void {
+    function timerDecode() : Void {
+				trace('timerDecode');
         var result : Int = 0;
 
-        while(_need_samples && (result = _dec.dmx.process(1)) == 1) {
+        while(_need_samples && (result = decoder.dmx.process(1)) == 1) {
             // pass
         }
 
@@ -181,7 +157,7 @@ class OggPlayer  {
             _need_data = true;
             if (!_read_pending) {
                 _read_pending = true;
-                haxe.Timer.delay(_try_write_data, 0);
+                haxe.Timer.delay(timerTryWriteData, 0);
             }
         }
     }
@@ -189,40 +165,45 @@ class OggPlayer  {
     
 
     // ADQueue callbacks
-    function _on_over_min() : Void {
+    function queueOverMinCallback() : Void {
+				trace('queueOverMinCallback');
         _data_min = true;
-        if (_decoding && _sch == null) {
-            _sch = _s.play();
-            _sch.addEventListener(Event.SOUND_COMPLETE, channelComplete);
+        if (_decoding && soundChannel == null) {
+            soundChannel = sound.play();
+            soundChannel.addEventListener(Event.SOUND_COMPLETE, channelComplete);
         }
     }
 
-    function _on_over_max() : Void {
+    function queueOverMaxCallback() : Void {
+				trace('queueOverMaxCallback');
         _need_samples = false;
     }
 
-    function _on_under_max() : Void {
+    function queueUnderMaxCallback() : Void {
+		trace('queueUnderMaxCallback');
         _need_samples = true;
-        haxe.Timer.delay(_decode, 0);
+        haxe.Timer.delay(timerDecode, 0);
     }
 
 
 
     // VSoundDecoder callback
-    function _on_decoded(pcm : Array<Vector<Float>>, index : Vector<Int>, samples : Int) : Void {
-        _aq.write(pcm, index, samples);
+    function decodedCallback(pcm : Array<Vector<Float>>, index : Vector<Int>, samples : Int) : Void {
+		//trace('decodedCallback');
+        audioDataQueue.write(pcm, index, samples);
     }
 
 
 	
     // Sound data callback
-    function _data_cb(event : SampleDataEvent) : Void {
-        var avail : Int = _aq._samples;
+    function onSampleData(event : SampleDataEvent) : Void {
+		trace('onSampleData $_counterInt');
+        var avail : Int = audioDataQueue._samples;
         var to_write = avail > 8192 ? 8192 : avail; // FIXME: unhardcode!
 
         if (to_write > 0) {
-            _aq.read(event.data, to_write);
-            _c1 += to_write;
+            audioDataQueue.read(event.data, to_write);
+            counterInt += to_write;
         } else {
         }
     }
