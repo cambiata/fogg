@@ -134,7 +134,7 @@ class OggPlayer  {
 
         decoder.dmx.read(this.data, to_read);
 
-		decoder.dmx.
+		
 		
         //if (_data_complete)
         //    _dec.dmx.read(_ul, 0);
@@ -197,7 +197,7 @@ class OggPlayer  {
 	
     // Sound data callback
     function onSampleData(event : SampleDataEvent) : Void {
-		trace('onSampleData $_counterInt');
+		trace('onSampleData $counterInt');
         var avail : Int = audioDataQueue._samples;
         var to_write = avail > 8192 ? 8192 : avail; // FIXME: unhardcode!
 
